@@ -1,15 +1,12 @@
-2025/03/03-12:35:50.196 af03 Reusing MANIFEST /Users/rodrigo/Documents/REDROGO/whatsapp-2/sessions/session-4424136347/Default/Local Storage/leveldb/MANIFEST-000001
-2025/03/03-12:35:50.197 af03 Recovering log #12
-2025/03/03-12:35:50.197 af03 Reusing old log /Users/rodrigo/Documents/REDROGO/whatsapp-2/sessions/session-4424136347/Default/Local Storage/leveldb/000012.log 
-2025/03/03-13:07:17.807 172f Level-0 table #16: started
-2025/03/03-13:07:17.835 172f Level-0 table #16: 14748 bytes OK
-2025/03/03-13:07:17.876 172f Delete type=0 #12
-2025/03/03-13:07:17.897 172f Compacting 4@0 + 1@1 files
-2025/03/03-13:07:17.925 172f Generated table #17@0: 43 keys, 4491 bytes
-2025/03/03-13:07:17.925 172f Compacted 4@0 + 1@1 files => 4491 bytes
-2025/03/03-13:07:17.965 172f compacted to: files[ 0 1 1 0 0 0 0 ]
-2025/03/03-13:07:17.966 172f Delete type=2 #16
-2025/03/03-13:07:17.966 172f Delete type=2 #7
-2025/03/03-13:07:17.966 172f Delete type=2 #13
-2025/03/03-13:07:17.966 172f Delete type=2 #11
-2025/03/03-13:07:17.966 172f Delete type=2 #9
+2025/03/03-17:10:37.472 fb03 Reusing MANIFEST /Users/rodrigo/Documents/REDROGO/whatsapp-2/sessions/session-4424136347/Default/Local Storage/leveldb/MANIFEST-000001
+2025/03/03-17:10:37.473 fb03 Recovering log #15
+2025/03/03-17:10:37.474 fb03 Reusing old log /Users/rodrigo/Documents/REDROGO/whatsapp-2/sessions/session-4424136347/Default/Local Storage/leveldb/000015.log 
+2025/03/03-18:45:02.940 1b93 Level-0 table #20: started
+2025/03/03-18:45:02.971 1b93 Level-0 table #20: 13783 bytes OK
+2025/03/03-18:45:03.019 1b93 Delete type=0 #15
+2025/03/04-01:28:20.243 16377 Level-0 table #22: started
+2025/03/04-01:28:20.268 16377 Level-0 table #22: 13040 bytes OK
+2025/03/04-01:28:20.310 16377 Delete type=0 #19
+2025/03/04-06:11:18.317 1f02f Level-0 table #24: started
+2025/03/04-06:11:18.345 1f02f Level-0 table #24: 13045 bytes OK
+2025/03/04-06:11:18.390 1f02f Delete type=0 #21
