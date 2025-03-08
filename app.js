@@ -99,7 +99,7 @@ const initializeClient = async (sessionId) => {
         // Verificamos si el cliente está realmente conectado
         const state = await client.getState();
         if (state === 'CONNECTED') {
-            console.log(`[INFO] Cliente ${sessionId} confirmado como conectado`);
+            console.log(`[INFO] Clienteno msm ${sessionId} confirmado como conectado`);
         } else {
             console.log(`[WARN] Cliente ${sessionId} inicializado pero no conectado (estado: ${state}). Esperando 'ready'...`);
         }
@@ -290,6 +290,19 @@ app.post('/api/response-model', (req, res) => {
   } catch (error) {
       res.status(500).json({ error: error.message });
   }
+});
+app.get('/', (req, res) => {
+    const html = `
+        <html>
+        <head>
+        <tittle>VERCEL</tittle>
+        </head>
+        <body>
+            <h1>HOLA QUE SHOW</h1>
+        </body>
+        </html>
+    `   
+    res.send(html)
 });
 
 // Cargar sesiones al iniciar el servidor
