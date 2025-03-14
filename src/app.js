@@ -77,7 +77,7 @@ const initializeClient = async (sessionId) => {
     });
 
     client.on('message', async (msg) => {
-        console.log(msg.body.toLowerCase())
+        console.log(msg.body.toLowerCase(), msg.from.endsWith('@c.us'), msg.from)
         if (msg.from.endsWith('@c.us')) {
             const message = msg.body.toLowerCase();
             const response = defaultResponses[message] || 'No entiendo, ¿cómo puedo ayudarte?';
