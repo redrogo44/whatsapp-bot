@@ -58,6 +58,7 @@ const initializeClient = async (sessionId) => {
 
     client.on('qr', (qr) => {
         console.log(`[INFO] Generando QR para sesión ${sessionId}. Escanea este QR:`);
+        console.log('Esto es QR', qr)
         qrcode.generate(qr, { small: true });
     });
 
