@@ -76,12 +76,36 @@ const initializeClient = async (sessionId) => {
         console.error(`[ERROR] Fallo de autenticación para ${sessionId}: ${msg}`);
     });
 
+    // client.on('message', async (msg) => {
+    //     console.log(msg.body.toLowerCase(), msg.from.endsWith('@c.us'), msg.from)
+    //     if (msg.from.endsWith('@c.us')) {
+    //         const message = msg.body.toLowerCase();
+    //         const response = defaultResponses[message] || 'No entiendo, ¿cómo puedo ayudarte?';
+    //         await msg.reply(response);
+    //     }
+    // });
+
+    // Modificación en el manejador de mensajes
     client.on('message', async (msg) => {
-        console.log(msg.body.toLowerCase(), msg.from.endsWith('@c.us'), msg.from)
-        if (msg.from.endsWith('@c.us')) {
+        if (msg.from.endsWith('@c.us') && !msg.fromMe) { // Solo mensajes personales y no enviados por mí
             const message = msg.body.toLowerCase();
-            const response = defaultResponses[message] || 'No entiendo, ¿cómo puedo ayudarte?';
-            await msg.reply(response);
+            try {
+                const contact = await client.getContactById(msg.from);
+                const isContact = contact.isMyContact; // true si está en tus contactos
+
+                if (isContact) {
+                    console.log(`[INFO] Mensaje de contacto registrado: ${msg.from} - ${message}`);
+                    // const response = defaultResponses[message] || 'Hola, estás en mis contactos. ¿Cómo puedo ayudarte?';
+                    // await msg.reply(response);
+                } else {
+                    console.log(`[INFO] Mensaje de número no registrado: ${msg.from} - ${message}`);
+                    const response = defaultResponses[message] || 'Hola, no estás en mis contactos. ¿En qué te puedo ayudar?';
+                    await msg.reply(response);
+                }
+            } catch (error) {
+                console.error(`[ERROR] Error al obtener contacto ${msg.from}:`, error);
+                await msg.reply('Ocurrió un error al procesar tu mensaje.');
+            }
         }
     });
 
