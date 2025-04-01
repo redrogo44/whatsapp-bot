@@ -21,6 +21,7 @@ const defaultResponses = {
     'gracias': 'De nada, estoy aquí para ayudarte'
 };
 
+// Función para inicializar un cliente WhatsApp
 const initializeClient = async (sessionId) => {
     console.log(`[INFO] Inicializando cliente para sesión ${sessionId}`);
 
@@ -52,16 +53,20 @@ const initializeClient = async (sessionId) => {
 
     client.on('authenticated', () => {
         console.log(`[INFO] Sesión ${sessionId} autenticada correctamente`);
+        // Guardamos el cliente aquí para asegurar disponibilidad inmediata
+        clients[sessionId] = client;
+        console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras authenticated. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
     });
 
     client.on('ready', () => {
         console.log(`[INFO] Cliente ${sessionId} está listo`);
-        clients[sessionId] = client;
+        clients[sessionId] = client; // Reforzamos el guardado en ready
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras ready. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
     });
 
     client.on('auth_failure', (msg) => {
         console.error(`[ERROR] Fallo de autenticación para ${sessionId}: ${msg}`);
+        delete clients[sessionId];
     });
 
     client.on('message', async (msg) => {
@@ -95,7 +100,7 @@ const initializeClient = async (sessionId) => {
 
     try {
         await client.initialize();
-        clients[sessionId] = client;
+        clients[sessionId] = client; // Guardamos inmediatamente después de initialize
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras initialize. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
         const state = await client.getState();
         if (state === 'CONNECTED') {
@@ -111,6 +116,7 @@ const initializeClient = async (sessionId) => {
     }
 };
 
+// Función para cargar sesiones existentes
 const loadExistingSessions = async () => {
     try {
         const sessionFiles = fs.readdirSync(SESSIONS_DIR).filter(file => file.startsWith('.wwebjs_auth_session_'));
@@ -152,7 +158,6 @@ loadExistingSessions().then(() => {
     console.error('[ERROR] Error durante la carga inicial:', error);
 });
 
-// Endpoint para crear una sesión
 app.post('/api/session', async (req, res) => {
     console.log(`[API] Petición recibida: POST /api/session - Datos: ${JSON.stringify(req.body)}`);
     try {
@@ -174,7 +179,6 @@ app.post('/api/session', async (req, res) => {
     }
 });
 
-// Endpoint para enviar mensajes
 app.post('/api/send', async (req, res) => {
     console.log(`[API] Petición recibida: POST /api/send - Datos: ${JSON.stringify(req.body)}`);
     try {
@@ -220,7 +224,6 @@ app.post('/api/send', async (req, res) => {
     }
 });
 
-// Endpoint para obtener el estado de una sesión
 app.get('/api/session/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     console.log(`[API] Petición recibida: GET /api/session/${sessionId}`);
@@ -248,7 +251,6 @@ app.get('/api/session/:sessionId', (req, res) => {
         });
 });
 
-// Endpoint para agregar un modelo de respuesta
 app.post('/api/response-model', (req, res) => {
     console.log(`[API] Petición recibida: POST /api/response-model - Datos: ${JSON.stringify(req.body)}`);
     try {
