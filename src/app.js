@@ -30,14 +30,21 @@ const defaultResponses = {
 class MySQLAuth {
     constructor(sessionId) {
         this.sessionId = sessionId;
+        this.client = null;
     }
 
-    async setup(client) {
-        this.client = client;
-        console.log(`[INFO] Configurando autenticación para ${this.sessionId}`);
+    async beforeBrowserInitialized() {
+        console.log(`[INFO] Antes de inicializar el navegador para ${this.sessionId}`);
+        // No necesitamos hacer nada especial aquí, pero debe existir
     }
 
-    async authenticate() {
+    async afterBrowserInitialized() {
+        console.log(`[INFO] Después de inicializar el navegador para ${this.sessionId}`);
+        // Método requerido, pero podemos dejarlo vacío
+    }
+
+    async onAuthenticationNeeded() {
+        console.log(`[INFO] Autenticación necesaria para ${this.sessionId}`);
         const connection = await mysql.createConnection(dbConfig);
         try {
             const [rows] = await connection.execute(
@@ -47,22 +54,23 @@ class MySQLAuth {
             if (rows.length > 0) {
                 const data = JSON.parse(rows[0].session_data);
                 console.log(`[DEBUG] Datos de autenticación cargados desde MySQL para ${this.sessionId}`);
-                return data;
+                return { failed: false, credentials: data };
             }
             console.log(`[INFO] No se encontraron datos de autenticación para ${this.sessionId}, generando nuevo QR`);
-            return null; // Si no hay datos, se generará un QR
+            return { failed: false }; // Generar QR si no hay datos
         } catch (error) {
             console.error(`[ERROR] Error al cargar datos de autenticación desde MySQL: ${error.message}`);
-            return null;
+            return { failed: true };
         } finally {
             await connection.end();
         }
     }
 
-    async save(data) {
+    async afterAuthentication({ sessionData }) {
+        console.log(`[INFO] Después de autenticar ${this.sessionId}`);
         const connection = await mysql.createConnection(dbConfig);
         try {
-            const serializedData = JSON.stringify(data);
+            const serializedData = JSON.stringify(sessionData);
             await connection.execute(
                 'INSERT INTO sessions (session_id, session_data) VALUES (?, ?) ON DUPLICATE KEY UPDATE session_data = ?, updated_at = NOW()',
                 [this.sessionId, serializedData, serializedData]
@@ -76,6 +84,7 @@ class MySQLAuth {
     }
 
     async logout() {
+        console.log(`[INFO] Cerrando sesión para ${this.sessionId}`);
         const connection = await mysql.createConnection(dbConfig);
         try {
             await connection.execute('DELETE FROM whatsapp_sessions WHERE session_id = ?', [this.sessionId]);
@@ -85,6 +94,11 @@ class MySQLAuth {
         } finally {
             await connection.end();
         }
+    }
+
+    async destroy() {
+        console.log(`[INFO] Destruyendo estrategia de autenticación para ${this.sessionId}`);
+        // Método opcional para limpieza, lo dejamos vacío por ahora
     }
 }
 
