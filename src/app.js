@@ -71,16 +71,17 @@ class MySQLAuth {
     }
 
     async afterAuthentication({ sessionData }) {
-        // Este método podría no ser llamado, pero lo dejamos por compatibilidad
+        // Método de respaldo por si se llama
         console.log(`[INFO] Después de autenticar ${this.sessionId} (afterAuthentication)`);
         await this.saveSessionData(sessionData);
     }
 
     async saveSessionData(sessionData) {
-            console.log(`[DEBUG] LLEGO A GUARDAR LOS DATOS DE LA SESSION: ${this.sessionId}`);
+        console.log(`[DEBUG] Intentando guardar datos de sesión para ${this.sessionId}`);
         const connection = await mysql.createConnection(dbConfig);
         try {
             const serializedData = JSON.stringify(sessionData);
+            console.log(`[DEBUG] Datos serializados para ${this.sessionId}: ${serializedData.substring(0, 100)}...`);
             await connection.execute(
                 'INSERT INTO whatsapp_sessions (session_id, session_data) VALUES (?, ?) ON DUPLICATE KEY UPDATE session_data = ?, updated_at = NOW()',
                 [this.sessionId, serializedData, serializedData]
@@ -143,8 +144,12 @@ const initializeClient = async (sessionId) => {
         console.log(`[INFO] Sesión ${sessionId} autenticada correctamente`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras authenticated. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
-        // Guardamos los datos aquí para asegurar que se persistan
-        await authStrategy.saveSessionData(sessionData);
+        // Guardamos los datos inmediatamente después de la autenticación
+        if (sessionData) {
+            await authStrategy.saveSessionData(sessionData);
+        } else {
+            console.warn(`[WARN] No se recibieron datos de sesión para ${sessionId} en 'authenticated'`);
+        }
     });
 
     client.on('ready', () => {
