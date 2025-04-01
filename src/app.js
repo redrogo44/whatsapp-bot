@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 require('dotenv').config();
+
 const app = express();
 app.use(express.json());
 
@@ -33,14 +34,18 @@ class MySQLAuth {
         this.client = null;
     }
 
+    async setup(client) {
+        this.client = client;
+        console.log(`[INFO] Configurando estrategia de autenticación para ${this.sessionId}`);
+        // Aquí podemos realizar cualquier configuración inicial si es necesario
+    }
+
     async beforeBrowserInitialized() {
         console.log(`[INFO] Antes de inicializar el navegador para ${this.sessionId}`);
-        // No necesitamos hacer nada especial aquí, pero debe existir
     }
 
     async afterBrowserInitialized() {
         console.log(`[INFO] Después de inicializar el navegador para ${this.sessionId}`);
-        // Método requerido, pero podemos dejarlo vacío
     }
 
     async onAuthenticationNeeded() {
@@ -98,7 +103,6 @@ class MySQLAuth {
 
     async destroy() {
         console.log(`[INFO] Destruyendo estrategia de autenticación para ${this.sessionId}`);
-        // Método opcional para limpieza, lo dejamos vacío por ahora
     }
 }
 
