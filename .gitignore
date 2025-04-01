@@ -65,6 +65,7 @@ typings/
 cubobit-desarrollo.json
 
 dist/
+sessions/
 package-lock.json
 ticket.pdf
 CODE_QR.png

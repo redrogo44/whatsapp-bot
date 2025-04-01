@@ -1,43 +1,27 @@
-
 // app.js
 const express = require('express');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios'); // P
+const axios = require('axios');
+
 const app = express();
 app.use(express.json());
 
-// Directorio para guardar las sesiones
 const SESSIONS_DIR = path.join(__dirname, 'sessions');
 if (!fs.existsSync(SESSIONS_DIR)) {
     fs.mkdirSync(SESSIONS_DIR);
 }
 
-// Objeto para almacenar clientes activos
 const clients = {};
-
-// Modelos de respuesta por defecto
 const defaultResponses = {
     'hola': '¡Hola! ¿En qué puedo ayudarte?',
     'adios': '¡Hasta luego!',
     'gracias': 'De nada, estoy aquí para ayudarte'
 };
 
-// Función para inicializar un cliente WhatsApp
-    //   // Manejar mensajes
-    // client.on('message', async (msg) => {
-    //   if (msg.from.endsWith('@c.us')) {
-    //     const message = msg.body.toLowerCase();
-    //     // const response = defaultResponses[message] || 'No entiendo, ¿cómo puedo ayudarte?';
-    //     const response = defaultResponses[message]
-    //     await msg.reply(response);
-    //   }
-
-// Función para inicializar un cliente WhatsApp
-// Función para inicializar un cliente WhatsApp
-// Función para inicializar un cliente WhatsApp
+// Función para inicializar un cliente WhatsApp con configuración de Puppeteer
 const initializeClient = async (sessionId) => {
     console.log(`[INFO] Inicializando cliente para sesión ${sessionId}`);
 
@@ -48,7 +32,13 @@ const initializeClient = async (sessionId) => {
         }),
         puppeteer: {
             headless: true,
-            args: ['--no-sandbox']
+            args: [
+                '--no-sandbox',           // Necesario para entornos sin permisos de sandbox
+                '--disable-setuid-sandbox', // Desactiva sandbox adicional
+                '--disable-dev-shm-usage', // Evita problemas con memoria compartida en contenedores
+                '--disable-gpu',          // GPU no es necesario en headless
+                '--single-process'        // Reduce uso de recursos
+            ]
         },
         webVersionCache: {
             type: 'remote',
@@ -58,7 +48,6 @@ const initializeClient = async (sessionId) => {
 
     client.on('qr', (qr) => {
         console.log(`[INFO] Generando QR para sesión ${sessionId}. Escanea este QR:`);
-        console.log('Esto es QR', qr)
         qrcode.generate(qr, { small: true });
     });
 
@@ -76,27 +65,17 @@ const initializeClient = async (sessionId) => {
         console.error(`[ERROR] Fallo de autenticación para ${sessionId}: ${msg}`);
     });
 
-    // client.on('message', async (msg) => {
-    //     console.log(msg.body.toLowerCase(), msg.from.endsWith('@c.us'), msg.from)
-    //     if (msg.from.endsWith('@c.us')) {
-    //         const message = msg.body.toLowerCase();
-    //         const response = defaultResponses[message] || 'No entiendo, ¿cómo puedo ayudarte?';
-    //         await msg.reply(response);
-    //     }
-    // });
-
-    // Modificación en el manejador de mensajes
     client.on('message', async (msg) => {
-        if (msg.from.endsWith('@c.us') && !msg.fromMe) { // Solo mensajes personales y no enviados por mí
+        if (msg.from.endsWith('@c.us') && !msg.fromMe) {
             const message = msg.body.toLowerCase();
             try {
                 const contact = await client.getContactById(msg.from);
-                const isContact = contact.isMyContact; // true si está en tus contactos
+                const isContact = contact.isMyContact;
 
                 if (isContact) {
                     console.log(`[INFO] Mensaje de contacto registrado: ${msg.from} - ${message}`);
-                    // const response = defaultResponses[message] || 'Hola, estás en mis contactos. ¿Cómo puedo ayudarte?';
-                    // await msg.reply(response);
+                    const response = defaultResponses[message] || 'Hola, estás en mis contactos. ¿Cómo puedo ayudarte?';
+                    await msg.reply(response);
                 } else {
                     console.log(`[INFO] Mensaje de número no registrado: ${msg.from} - ${message}`);
                     const response = defaultResponses[message] || 'Hola, no estás en mis contactos. ¿En qué te puedo ayudar?';
@@ -117,30 +96,26 @@ const initializeClient = async (sessionId) => {
 
     try {
         await client.initialize();
-        // Guardamos el cliente inmediatamente después de initialize, pero verificamos su estado
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras initialize. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
-
-        // Verificamos si el cliente está realmente conectado
         const state = await client.getState();
         if (state === 'CONNECTED') {
-            console.log(`[INFO] Clienteno msm ${sessionId} confirmado como conectado`);
+            console.log(`[INFO] Cliente ${sessionId} confirmado como conectado`);
         } else {
             console.log(`[WARN] Cliente ${sessionId} inicializado pero no conectado (estado: ${state}). Esperando 'ready'...`);
         }
         return client;
     } catch (error) {
         console.error(`[ERROR] Error inicializando cliente ${sessionId}:`, error);
-        delete clients[sessionId]; // Eliminamos si falla la inicialización
+        delete clients[sessionId];
         throw error;
     }
 };
 
-// Función para cargar sesiones existentes
 const loadExistingSessions = async () => {
     try {
-        const sessionFiles = fs.readdirSync(SESSIONS_DIR).filter(file => file.startsWith('session-'));
-        const sessionIds = sessionFiles.map(file => file.replace('session-', ''));
+        const sessionFiles = fs.readdirSync(SESSIONS_DIR).filter(file => file.startsWith('.wwebjs_auth_session_'));
+        const sessionIds = sessionFiles.map(file => file.replace('.wwebjs_auth_session_', ''));
 
         console.log(`[INFO] Sesiones encontradas en disco: ${sessionIds.length > 0 ? sessionIds.join(', ') : 'Ninguna'}`);
 
@@ -156,7 +131,28 @@ const loadExistingSessions = async () => {
         console.error('[ERROR] Error al cargar sesiones existentes:', error);
     }
 };
-// Endpoint para crear nueva sesión
+
+const getMedia = async (type, content) => {
+    if (type === 'url') {
+        const response = await axios.get(content, { responseType: 'arraybuffer' });
+        const buffer = Buffer.from(response.data, 'binary');
+        const mimeType = response.headers['content-type'];
+        return new MessageMedia(mimeType, buffer.toString('base64'));
+    } else if (type === 'base64') {
+        const [mimePart, data] = content.split(',');
+        const mimeType = mimePart.match(/:(.*?);/)[1];
+        return new MessageMedia(mimeType, data);
+    }
+    throw new Error('Tipo de contenido no soportado');
+};
+
+console.log('[INFO] Iniciando servidor y cargando sesiones existentes...');
+loadExistingSessions().then(() => {
+    console.log('[INFO] Carga inicial de sesiones completada');
+}).catch((error) => {
+    console.error('[ERROR] Error durante la carga inicial:', error);
+});
+
 app.post('/api/session', async (req, res) => {
     try {
         const { sessionId } = req.body;
@@ -165,180 +161,107 @@ app.post('/api/session', async (req, res) => {
         }
         
         if (clients[sessionId]) {
-            return res.status(400).json({ error: 'La sesión ya existe' });
+            return res.status(400).json({ error: 'La sesión ya existe y está activa' });
         }
 
+        console.log(`[INFO] Creando nueva sesión: ${sessionId}`);
         await initializeClient(sessionId);
-        res.json({ message: `Sesión ${sessionId} creada. Escanea el QR en la terminal` });
+        res.json({ message: `Sesión ${sessionId} creada. Escanea el QR si es necesario` });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: `Error al crear sesión: ${error.message}` });
     }
 });
 
-// Endpoint actualizado para enviar mensajes, imágenes o archivos
-app.post('/api/send2', async (req, res) => {
-  try {
-      const { sessionId, number, message, media } = req.body;
-
-      if (!sessionId || !number) {
-          return res.status(400).json({ error: 'Faltan parámetros: sessionId y number son requeridos' });
-      }
-
-      const client = clients[sessionId];
-      if (!client) {
-          return res.status(404).json({ error: 'Sesión no encontrada o no está lista' });
-      }
-
-      const info = await client.getState();
-      if (info !== 'CONNECTED') {
-          return res.status(400).json({ error: 'El cliente no está conectado' });
-      }
-
-      const chatId = `${number}@c.us`;
-
-      // Si hay contenido multimedia
-      if (media) {
-          const { type, content, filename } = media;
-          if (!type || !content) {
-              return res.status(400).json({ error: 'Media requiere type y content' });
-          }
-
-          const mediaObject = await getMedia(type, content);
-          await client.sendMessage(chatId, mediaObject, { 
-              caption: message || '', 
-              mediaFilename: filename 
-          });
-      } 
-      // Si es solo texto
-      else if (message) {
-          await client.sendMessage(chatId, message);
-      } else {
-          return res.status(400).json({ error: 'Se requiere message o media' });
-      }
-
-      res.json({ message: 'Contenido enviado con éxito' });
-  } catch (error) {
-      res.status(500).json({ error: `Error al enviar: ${error.message}` });
-  }
-});
-
-// Endpoint para enviar mensaje
 app.post('/api/send', async (req, res) => {
     try {
-        const { sessionId, number, message } = req.body;
-        
-        if (!sessionId || !number || !message) {
-            return res.status(400).json({ error: 'Faltan parámetros' });
+        const { sessionId, number, message, media } = req.body;
+
+        if (!sessionId || !number) {
+            return res.status(400).json({ error: 'Faltan parámetros: sessionId y number son requeridos' });
         }
 
         const client = clients[sessionId];
-        console.log(clients)
         if (!client) {
-            return res.status(404).json({ error: 'Sesión no encontrada' });
+            return res.status(404).json({ error: 'Sesión no encontrada o no está lista' });
+        }
+
+        const info = await client.getState();
+        if (info !== 'CONNECTED') {
+            return res.status(400).json({ error: 'El cliente no está conectado' });
         }
 
         const chatId = `${number}@c.us`;
-        await client.sendMessage(chatId, message);
-        res.json({ message: 'Mensaje enviado con éxito' });
+
+        if (media) {
+            const { type, content, filename } = media;
+            if (!type || !content) {
+                return res.status(400).json({ error: 'Media requiere type y content' });
+            }
+
+            const mediaObject = await getMedia(type, content);
+            await client.sendMessage(chatId, mediaObject, { 
+                caption: message || '', 
+                mediaFilename: filename 
+            });
+        } else if (message) {
+            await client.sendMessage(chatId, message);
+        } else {
+            return res.status(400).json({ error: 'Se requiere message o media' });
+        }
+
+        res.json({ message: 'Contenido enviado con éxito' });
+    } catch (error) {
+        res.status(500).json({ error: `Error al enviar: ${error.message}` });
+    }
+});
+
+app.get('/api/session/:sessionId', (req, res) => {
+    const { sessionId } = req.params;
+    console.log(`[INFO] Solicitando estado de sesión ${sessionId}`);
+    
+    const client = clients[sessionId];
+    if (!client) {
+        console.log(`[WARN] Sesión ${sessionId} no encontrada en clients. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
+        return res.status(404).json({ error: 'Sesión no encontrada' });
+    }
+    
+    client.getState()
+        .then((state) => {
+            console.log(`[INFO] Estado de ${sessionId}: ${state}`);
+            res.json({ 
+                status: state || 'DISCONNECTED',
+                sessionId 
+            });
+        })
+        .catch((error) => {
+            console.error(`[ERROR] Error obteniendo estado de ${sessionId}:`, error);
+            res.json({ 
+                status: 'DISCONNECTED',
+                sessionId 
+            });
+        });
+});
+
+app.post('/api/response-model', (req, res) => {
+    try {
+        const { sessionId, trigger, response } = req.body;
+        
+        if (!sessionId || !trigger || !response) {
+            return res.status(400).json({ error: 'Faltan parámetros' });
+        }
+
+        if (!clients[sessionId]) {
+            return res.status(404).json({ error: 'Sesión no encontrada' });
+        }
+
+        defaultResponses[trigger.toLowerCase()] = response;
+        res.json({ message: 'Modelo de respuesta agregado' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Endpoint para obtener estado de sesión
-app.get('/api/session/:sessionId', (req, res) => {
-  const { sessionId } = req.params;
-  console.log(sessionId, clients)
-  const client = clients[sessionId];
-  
-  if (!client) {
-      return res.status(404).json({ error: 'Sesión no encontrada' });
-  }
-  
-  client.getState()
-      .then((state) => {
-          res.json({ 
-              status: state || 'DISCONNECTED',
-              sessionId 
-          });
-      })
-      .catch(() => {
-          res.json({ 
-              status: 'DISCONNECTED',
-              sessionId 
-          });
-      });
-});
-
-// Endpoint para agregar modelo de respuesta
-app.get('/api/session/:sessionId', (req, res) => {
-  const { sessionId } = req.params;
-  const client = clients[sessionId];
-  
-  console.log(`[INFO] Verificando estado de sesión ${sessionId}`);
-  if (!client) {
-      console.log(`[WARN] Sesión ${sessionId} no encontrada en clients`);
-      return res.status(404).json({ error: 'Sesión no encontrada' });
-  }
-  
-  client.getState()
-      .then((state) => {
-          console.log(`[INFO] Estado de ${sessionId}: ${state}`);
-          res.json({ 
-              status: state || 'DISCONNECTED',
-              sessionId 
-          });
-      })
-      .catch((error) => {
-          console.error(`[ERROR] Error obteniendo estado de ${sessionId}:`, error);
-          res.json({ 
-              status: 'DISCONNECTED',
-              sessionId 
-          });
-      });
-});
-
-app.post('/api/response-model', (req, res) => {
-  try {
-      const { sessionId, trigger, response } = req.body;
-      
-      if (!sessionId || !trigger || !response) {
-          return res.status(400).json({ error: 'Faltan parámetros' });
-      }
-
-      if (!clients[sessionId]) {
-          return res.status(404).json({ error: 'Sesión no encontrada' });
-      }
-
-      defaultResponses[trigger.toLowerCase()] = response;
-      res.json({ message: 'Modelo de respuesta agregado' });
-  } catch (error) {
-      res.status(500).json({ error: error.message });
-  }
-});
-app.get('/', (req, res) => {
-    const html = `
-        <html>
-        <head>
-        <tittle>VERCEL</tittle>
-        </head>
-        <body>
-            <h1>HOLA QUE SHOW REDROGOd</h1>
-        </body>
-        </html>
-    `   
-    res.send(html)
-});
-
-// Cargar sesiones al iniciar el servidor
-(async () => {
-  console.log('[INFO] Iniciando carga de sesiones existentes...');
-  await loadExistingSessions();
-  console.log('[INFO] Carga de sesiones completada');
-})();
-
-// Iniciar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Servidor corriendo en puerto ${PORT}`);
+    console.log(`[INFO] Servidor corriendo en puerto ${PORT}`);
 });
