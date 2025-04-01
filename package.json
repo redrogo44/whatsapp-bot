@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "nodemon ./src/app.js",
-    "start": "node ./bin/www",
+    "start": "node ./src/app.js",
     "build": "babel src -d dist"
   },
   "dependencies": {
