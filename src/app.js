@@ -264,6 +264,7 @@ app.post('/api/session', async (req, res) => {
         }
         
         if (clients[sessionId]) {
+            console.log(clients[sessionId])
             return res.status(400).json({ error: 'La sesión ya existe y está activa' });
         }
 
