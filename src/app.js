@@ -77,6 +77,7 @@ class MySQLAuth {
     }
 
     async saveSessionData(sessionData) {
+            console.log(`[DEBUG] LLEGO A GUARDAR LOS DATOS DE LA SESSION: ${this.sessionId}`);
         const connection = await mysql.createConnection(dbConfig);
         try {
             const serializedData = JSON.stringify(sessionData);
