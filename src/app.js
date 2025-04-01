@@ -78,8 +78,8 @@ const initializeClient = async (sessionId) => {
 
                 if (isContact) {
                     console.log(`[INFO] Mensaje de contacto registrado: ${msg.from} - ${message}`);
-                    const response = defaultResponses[message] || 'Hola, estás en mis contactos. ¿Cómo puedo ayudarte?';
-                    await msg.reply(response);
+                    // const response = defaultResponses[message] || 'Hola, estás en mis contactos. ¿Cómo puedo ayudarte?';
+                    // await msg.reply(response);
                 } else {
                     console.log(`[INFO] Mensaje de número no registrado: ${msg.from} - ${message}`);
                     const response = defaultResponses[message] || 'Hola, no estás en mis contactos. ¿En qué te puedo ayudar?';
