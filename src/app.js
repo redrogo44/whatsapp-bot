@@ -1,18 +1,23 @@
 // app.js
 const express = require('express');
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-
+require('dotenv').config();
 const app = express();
 app.use(express.json());
 
-const SESSIONS_DIR = path.join(__dirname, 'sessions');
-if (!fs.existsSync(SESSIONS_DIR)) {
-    fs.mkdirSync(SESSIONS_DIR);
-}
+// Configuración de la conexión a MySQL
+const dbConfig = {
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT || 3306,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_DATABASE
+};
 
 const clients = {};
 const defaultResponses = {
@@ -21,15 +26,74 @@ const defaultResponses = {
     'gracias': 'De nada, estoy aquí para ayudarte'
 };
 
+// Estrategia de autenticación personalizada para MySQL
+class MySQLAuth {
+    constructor(sessionId) {
+        this.sessionId = sessionId;
+    }
+
+    async setup(client) {
+        this.client = client;
+        console.log(`[INFO] Configurando autenticación para ${this.sessionId}`);
+    }
+
+    async authenticate() {
+        const connection = await mysql.createConnection(dbConfig);
+        try {
+            const [rows] = await connection.execute(
+                'SELECT session_data FROM whatsapp_sessions WHERE session_id = ?',
+                [this.sessionId]
+            );
+            if (rows.length > 0) {
+                const data = JSON.parse(rows[0].session_data);
+                console.log(`[DEBUG] Datos de autenticación cargados desde MySQL para ${this.sessionId}`);
+                return data;
+            }
+            console.log(`[INFO] No se encontraron datos de autenticación para ${this.sessionId}, generando nuevo QR`);
+            return null; // Si no hay datos, se generará un QR
+        } catch (error) {
+            console.error(`[ERROR] Error al cargar datos de autenticación desde MySQL: ${error.message}`);
+            return null;
+        } finally {
+            await connection.end();
+        }
+    }
+
+    async save(data) {
+        const connection = await mysql.createConnection(dbConfig);
+        try {
+            const serializedData = JSON.stringify(data);
+            await connection.execute(
+                'INSERT INTO sessions (session_id, session_data) VALUES (?, ?) ON DUPLICATE KEY UPDATE session_data = ?, updated_at = NOW()',
+                [this.sessionId, serializedData, serializedData]
+            );
+            console.log(`[DEBUG] Datos de autenticación guardados en MySQL para ${this.sessionId}`);
+        } catch (error) {
+            console.error(`[ERROR] Error al guardar datos de autenticación en MySQL: ${error.message}`);
+        } finally {
+            await connection.end();
+        }
+    }
+
+    async logout() {
+        const connection = await mysql.createConnection(dbConfig);
+        try {
+            await connection.execute('DELETE FROM whatsapp_sessions WHERE session_id = ?', [this.sessionId]);
+            console.log(`[INFO] Sesión ${this.sessionId} eliminada de MySQL`);
+        } catch (error) {
+            console.error(`[ERROR] Error al eliminar sesión de MySQL: ${error.message}`);
+        } finally {
+            await connection.end();
+        }
+    }
+}
+
 // Función para inicializar un cliente WhatsApp
 const initializeClient = async (sessionId) => {
     console.log(`[INFO] Inicializando cliente para sesión ${sessionId}`);
 
     const client = new Client({
-        authStrategy: new LocalAuth({ 
-            clientId: sessionId,
-            dataPath: SESSIONS_DIR 
-        }),
+        authStrategy: new MySQLAuth(sessionId),
         puppeteer: {
             headless: true,
             args: [
@@ -53,14 +117,13 @@ const initializeClient = async (sessionId) => {
 
     client.on('authenticated', () => {
         console.log(`[INFO] Sesión ${sessionId} autenticada correctamente`);
-        // Guardamos el cliente aquí para asegurar disponibilidad inmediata
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras authenticated. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
     });
 
     client.on('ready', () => {
         console.log(`[INFO] Cliente ${sessionId} está listo`);
-        clients[sessionId] = client; // Reforzamos el guardado en ready
+        clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras ready. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
     });
 
@@ -78,8 +141,8 @@ const initializeClient = async (sessionId) => {
 
                 if (isContact) {
                     console.log(`[INFO] Mensaje de contacto registrado: ${msg.from} - ${message}`);
-                    // const response = defaultResponses[message] || 'Hola, estás en mis contactos. ¿Cómo puedo ayudarte?';
-                    // await msg.reply(response);
+                    const response = defaultResponses[message] || 'Hola, estás en mis contactos. ¿Cómo puedo ayudarte?';
+                    await msg.reply(response);
                 } else {
                     console.log(`[INFO] Mensaje de número no registrado: ${msg.from} - ${message}`);
                     const response = defaultResponses[message] || 'Hola, no estás en mis contactos. ¿En qué te puedo ayudar?';
@@ -100,7 +163,7 @@ const initializeClient = async (sessionId) => {
 
     try {
         await client.initialize();
-        clients[sessionId] = client; // Guardamos inmediatamente después de initialize
+        clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras initialize. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
         const state = await client.getState();
         if (state === 'CONNECTED') {
@@ -116,13 +179,14 @@ const initializeClient = async (sessionId) => {
     }
 };
 
-// Función para cargar sesiones existentes
+// Función para cargar sesiones existentes desde MySQL
 const loadExistingSessions = async () => {
+    const connection = await mysql.createConnection(dbConfig);
     try {
-        const sessionFiles = fs.readdirSync(SESSIONS_DIR).filter(file => file.startsWith('.wwebjs_auth_session_'));
-        const sessionIds = sessionFiles.map(file => file.replace('.wwebjs_auth_session_', ''));
+        const [rows] = await connection.execute('SELECT session_id FROM whatsapp_sessions');
+        const sessionIds = rows.map(row => row.session_id);
 
-        console.log(`[INFO] Sesiones encontradas en disco: ${sessionIds.length > 0 ? sessionIds.join(', ') : 'Ninguna'}`);
+        console.log(`[INFO] Sesiones encontradas en MySQL: ${sessionIds.length > 0 ? sessionIds.join(', ') : 'Ninguna'}`);
 
         for (const sessionId of sessionIds) {
             if (!clients[sessionId]) {
@@ -133,7 +197,9 @@ const loadExistingSessions = async () => {
             }
         }
     } catch (error) {
-        console.error('[ERROR] Error al cargar sesiones existentes:', error);
+        console.error('[ERROR] Error al cargar sesiones existentes desde MySQL:', error);
+    } finally {
+        await connection.end();
     }
 };
 
@@ -151,7 +217,7 @@ const getMedia = async (type, content) => {
     throw new Error('Tipo de contenido no soportado');
 };
 
-console.log('[INFO] Iniciando servidor y cargando sesiones existentes...');
+console.log('[INFO] Iniciando servidor y cargando sesiones existentes desde MySQL...');
 loadExistingSessions().then(() => {
     console.log('[INFO] Carga inicial de sesiones completada');
 }).catch((error) => {
