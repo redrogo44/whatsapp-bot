@@ -21,7 +21,6 @@ const defaultResponses = {
     'gracias': 'De nada, estoy aquí para ayudarte'
 };
 
-// Función para inicializar un cliente WhatsApp con configuración de Puppeteer
 const initializeClient = async (sessionId) => {
     console.log(`[INFO] Inicializando cliente para sesión ${sessionId}`);
 
@@ -33,11 +32,11 @@ const initializeClient = async (sessionId) => {
         puppeteer: {
             headless: true,
             args: [
-                '--no-sandbox',           // Necesario para entornos sin permisos de sandbox
-                '--disable-setuid-sandbox', // Desactiva sandbox adicional
-                '--disable-dev-shm-usage', // Evita problemas con memoria compartida en contenedores
-                '--disable-gpu',          // GPU no es necesario en headless
-                '--single-process'        // Reduce uso de recursos
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--single-process'
             ]
         },
         webVersionCache: {
@@ -153,7 +152,9 @@ loadExistingSessions().then(() => {
     console.error('[ERROR] Error durante la carga inicial:', error);
 });
 
+// Endpoint para crear una sesión
 app.post('/api/session', async (req, res) => {
+    console.log(`[API] Petición recibida: POST /api/session - Datos: ${JSON.stringify(req.body)}`);
     try {
         const { sessionId } = req.body;
         if (!sessionId) {
@@ -168,11 +169,14 @@ app.post('/api/session', async (req, res) => {
         await initializeClient(sessionId);
         res.json({ message: `Sesión ${sessionId} creada. Escanea el QR si es necesario` });
     } catch (error) {
+        console.error(`[ERROR] Error en POST /api/session: ${error.message}`);
         res.status(500).json({ error: `Error al crear sesión: ${error.message}` });
     }
 });
 
+// Endpoint para enviar mensajes
 app.post('/api/send', async (req, res) => {
+    console.log(`[API] Petición recibida: POST /api/send - Datos: ${JSON.stringify(req.body)}`);
     try {
         const { sessionId, number, message, media } = req.body;
 
@@ -211,13 +215,15 @@ app.post('/api/send', async (req, res) => {
 
         res.json({ message: 'Contenido enviado con éxito' });
     } catch (error) {
+        console.error(`[ERROR] Error en POST /api/send: ${error.message}`);
         res.status(500).json({ error: `Error al enviar: ${error.message}` });
     }
 });
 
+// Endpoint para obtener el estado de una sesión
 app.get('/api/session/:sessionId', (req, res) => {
     const { sessionId } = req.params;
-    console.log(`[INFO] Solicitando estado de sesión ${sessionId}`);
+    console.log(`[API] Petición recibida: GET /api/session/${sessionId}`);
     
     const client = clients[sessionId];
     if (!client) {
@@ -234,7 +240,7 @@ app.get('/api/session/:sessionId', (req, res) => {
             });
         })
         .catch((error) => {
-            console.error(`[ERROR] Error obteniendo estado de ${sessionId}:`, error);
+            console.error(`[ERROR] Error en GET /api/session/${sessionId}: ${error.message}`);
             res.json({ 
                 status: 'DISCONNECTED',
                 sessionId 
@@ -242,7 +248,9 @@ app.get('/api/session/:sessionId', (req, res) => {
         });
 });
 
+// Endpoint para agregar un modelo de respuesta
 app.post('/api/response-model', (req, res) => {
+    console.log(`[API] Petición recibida: POST /api/response-model - Datos: ${JSON.stringify(req.body)}`);
     try {
         const { sessionId, trigger, response } = req.body;
         
@@ -257,6 +265,7 @@ app.post('/api/response-model', (req, res) => {
         defaultResponses[trigger.toLowerCase()] = response;
         res.json({ message: 'Modelo de respuesta agregado' });
     } catch (error) {
+        console.error(`[ERROR] Error en POST /api/response-model: ${error.message}`);
         res.status(500).json({ error: error.message });
     }
 });
