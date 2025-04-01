@@ -1,3 +1,4 @@
+require('dotenv').config();
 // app.js
 const express = require('express');
 const { Client, MessageMedia } = require('whatsapp-web.js');
@@ -6,7 +7,6 @@ const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-require('dotenv').config();
 
 const app = express();
 app.use(express.json());
@@ -37,7 +37,6 @@ class MySQLAuth {
     async setup(client) {
         this.client = client;
         console.log(`[INFO] Configurando estrategia de autenticación para ${this.sessionId}`);
-        // Aquí podemos realizar cualquier configuración inicial si es necesario
     }
 
     async beforeBrowserInitialized() {
@@ -72,7 +71,12 @@ class MySQLAuth {
     }
 
     async afterAuthentication({ sessionData }) {
-        console.log(`[INFO] Después de autenticar ${this.sessionId}`);
+        // Este método podría no ser llamado, pero lo dejamos por compatibilidad
+        console.log(`[INFO] Después de autenticar ${this.sessionId} (afterAuthentication)`);
+        await this.saveSessionData(sessionData);
+    }
+
+    async saveSessionData(sessionData) {
         const connection = await mysql.createConnection(dbConfig);
         try {
             const serializedData = JSON.stringify(sessionData);
@@ -110,8 +114,9 @@ class MySQLAuth {
 const initializeClient = async (sessionId) => {
     console.log(`[INFO] Inicializando cliente para sesión ${sessionId}`);
 
+    const authStrategy = new MySQLAuth(sessionId);
     const client = new Client({
-        authStrategy: new MySQLAuth(sessionId),
+        authStrategy,
         puppeteer: {
             headless: true,
             args: [
@@ -133,10 +138,12 @@ const initializeClient = async (sessionId) => {
         qrcode.generate(qr, { small: true });
     });
 
-    client.on('authenticated', () => {
+    client.on('authenticated', async (sessionData) => {
         console.log(`[INFO] Sesión ${sessionId} autenticada correctamente`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras authenticated. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
+        // Guardamos los datos aquí para asegurar que se persistan
+        await authStrategy.saveSessionData(sessionData);
     });
 
     client.on('ready', () => {
@@ -156,7 +163,7 @@ const initializeClient = async (sessionId) => {
             try {
                 const contact = await client.getContactById(msg.from);
                 const isContact = contact.isMyContact;
-                console.log('Valor del contacto', isContact)
+
                 if (isContact) {
                     console.log(`[INFO] Mensaje de contacto registrado: ${msg.from} - ${message}`);
                     const response = defaultResponses[message] || 'Hola, estás en mis contactos. ¿Cómo puedo ayudarte?';
