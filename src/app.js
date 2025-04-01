@@ -156,7 +156,7 @@ const initializeClient = async (sessionId) => {
             try {
                 const contact = await client.getContactById(msg.from);
                 const isContact = contact.isMyContact;
-
+                console.log('Valor del contacto', isContact)
                 if (isContact) {
                     console.log(`[INFO] Mensaje de contacto registrado: ${msg.from} - ${message}`);
                     const response = defaultResponses[message] || 'Hola, estás en mis contactos. ¿Cómo puedo ayudarte?';
