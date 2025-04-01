@@ -77,7 +77,7 @@ class MySQLAuth {
         try {
             const serializedData = JSON.stringify(sessionData);
             await connection.execute(
-                'INSERT INTO sessions (session_id, session_data) VALUES (?, ?) ON DUPLICATE KEY UPDATE session_data = ?, updated_at = NOW()',
+                'INSERT INTO whatsapp_sessions (session_id, session_data) VALUES (?, ?) ON DUPLICATE KEY UPDATE session_data = ?, updated_at = NOW()',
                 [this.sessionId, serializedData, serializedData]
             );
             console.log(`[DEBUG] Datos de autenticación guardados en MySQL para ${this.sessionId}`);
