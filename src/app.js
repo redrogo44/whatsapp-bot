@@ -4,7 +4,7 @@ const express = require('express');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const mysql = require('mysql2/promise');
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
 const axios = require('axios');
 
@@ -32,7 +32,7 @@ class MySQLAuth extends LocalAuth {
     constructor(sessionId) {
         super({ clientId: sessionId });
         this.sessionId = sessionId;
-        this.sessionData = null; // Almacenamos los datos de sesión manualmente
+        this.sessionData = null;
     }
 
     async afterAuthReady() {
@@ -91,18 +91,13 @@ class MySQLAuth extends LocalAuth {
 
     async getSession() {
         const sessionFromMySQL = await this.loadSessionFromMySQL();
-        if (sessionFromMySQL) {
-            this.session = sessionFromMySQL;
-            this.sessionData = sessionFromMySQL; // Guardamos para uso posterior
+        if (sessionFromMySQL && sessionFromMySQL.WABrowserId && sessionFromMySQL.WASecretBundle && sessionFromMySQL.WAToken1 && sessionFromMySQL.WAToken2) {
+            this.sessionData = sessionFromMySQL;
             console.log(`[INFO] Sesión cargada desde MySQL para ${this.sessionId}`);
-            return sessionFromMySQL;
+            return sessionFromMySQL; // Devolvemos los datos completos para que LocalAuth los use
         }
-        const localSession = await super.getSession();
-        if (localSession) {
-            this.sessionData = localSession; // Guardamos los datos localmente
-            console.log(`[INFO] Sesión obtenida de LocalAuth para ${this.sessionId}: ${JSON.stringify(localSession)}`);
-        }
-        return localSession;
+        console.log(`[INFO] No se encontraron datos de autenticación completos en MySQL para ${this.sessionId}, generando QR`);
+        return null; // Generamos QR si faltan claves esenciales
     }
 
     async logout() {
@@ -116,9 +111,52 @@ class MySQLAuth extends LocalAuth {
         } finally {
             await connection.end();
         }
-        await super.logout();
+        try {
+            await super.logout();
+        } catch (error) {
+            console.warn(`[WARN] Error al ejecutar logout de LocalAuth para ${this.sessionId}: ${error.message}`);
+            const sessionDir = path.join(process.cwd(), '.wwebjs_auth', `session-${this.sessionId}`);
+            await fs.rm(sessionDir, { recursive: true, force: true });
+            console.log(`[INFO] Directorio de sesión ${sessionDir} eliminado manualmente`);
+        }
     }
 }
+
+// Función para capturar datos de sesión desde el sistema de archivos
+const captureSessionDataFromFiles = async (sessionId) => {
+    const sessionDir = path.join(process.cwd(), '.wwebjs_auth', `session-${sessionId}`);
+    try {
+        const files = await fs.readdir(sessionDir, { withFileTypes: true });
+        let sessionData = {};
+
+        // Buscamos archivos que contengan datos de autenticación
+        for (const file of files) {
+            if (file.isFile() && file.name.endsWith('.json')) {
+                const filePath = path.join(sessionDir, file.name);
+                const content = await fs.readFile(filePath, 'utf8');
+                const data = JSON.parse(content);
+                if (data.WABrowserId || data.WASecretBundle || data.WAToken1 || data.WAToken2) {
+                    sessionData = {
+                        WABrowserId: data.WABrowserId || sessionData.WABrowserId,
+                        WASecretBundle: data.WASecretBundle || sessionData.WASecretBundle,
+                        WAToken1: data.WAToken1 || sessionData.WAToken1,
+                        WAToken2: data.WAToken2 || sessionData.WAToken2,
+                    };
+                }
+            }
+        }
+
+        if (Object.keys(sessionData).length === 0) {
+            console.warn(`[WARN] No se encontraron datos de autenticación en ${sessionDir}`);
+        } else {
+            console.log(`[DEBUG] Datos de sesión capturados desde archivos para ${sessionId}: ${JSON.stringify(sessionData)}`);
+        }
+        return sessionData;
+    } catch (error) {
+        console.error(`[ERROR] Error al capturar datos de sesión desde archivos para ${sessionId}: ${error.message}`);
+        return {};
+    }
+};
 
 // Función para inicializar un cliente WhatsApp
 const initializeClient = async (sessionId) => {
@@ -143,23 +181,28 @@ const initializeClient = async (sessionId) => {
         qrcode.generate(qr, { small: true });
     });
 
-    client.on('authenticated', async () => {
+    client.on('authenticated', () => {
         console.log(`[INFO] Evento 'authenticated' disparado para ${sessionId}`);
-        const sessionData = client.authStrategy.session || await client.authStrategy.getSession();
-        authStrategy.sessionData = sessionData; // Almacenamos manualmente
-        console.log(`[DEBUG] Datos de sesión recibidos en 'authenticated': ${JSON.stringify(sessionData)}`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras authenticated. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
-        await authStrategy.saveSessionData(sessionData);
     });
 
     client.on('ready', async () => {
         console.log(`[INFO] Evento 'ready' disparado para ${sessionId}`);
+        // Capturamos las claves de autenticación desde el sistema de archivos
+        const authData = await captureSessionDataFromFiles(sessionId);
+        // Completamos los datos de sesión con client.info
+        const sessionData = {
+            ...authData, // Incluimos las claves de autenticación
+            wid: client.info.wid,
+            pushname: client.info.pushname,
+            platform: client.info.platform,
+        };
+        authStrategy.sessionData = sessionData;
+        console.log(`[DEBUG] Datos de sesión obtenidos en 'ready': ${JSON.stringify(sessionData)}`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras ready. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
-        const sessionData = authStrategy.sessionData || await client.authStrategy.getSession();
-        console.log(`[DEBUG] Datos de sesión obtenidos en 'ready': ${JSON.stringify(sessionData)}`);
-        await authStrategy.saveSessionData(sessionData);
+        await authStrategy.saveSessionData(sessionData); // Guardamos datos completos
     });
 
     client.on('auth_failure', (msg) => {
