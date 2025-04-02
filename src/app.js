@@ -151,10 +151,24 @@ const initializeClient = async (sessionId) => {
         await authStrategy.saveSessionData(sessionData);
     });
 
-    client.on('ready', () => {
+    // client.on('ready', () => {
+    //     console.log(`[INFO] Cliente ${sessionId} está listo`);
+    //     clients[sessionId] = client;
+    //     console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras ready. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
+    // });
+
+    client.on('ready', async () => {
         console.log(`[INFO] Cliente ${sessionId} está listo`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras ready. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
+        // Intentar obtener los datos de sesión manualmente
+        try {
+            const sessionData = await client.info; // O client.getWASession() si está disponible
+            console.log(`[DEBUG] Datos de sesión obtenidos en 'ready': ${JSON.stringify(sessionData)}`);
+            await authStrategy.saveSessionData(sessionData);
+        } catch (error) {
+            console.error(`[ERROR] Error al obtener datos de sesión en 'ready': ${error.message}`);
+        }
     });
 
     client.on('auth_failure', (msg) => {
