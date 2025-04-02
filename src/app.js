@@ -71,13 +71,16 @@ class MySQLAuth {
     }
 
     async afterAuthentication({ sessionData }) {
-        // Método de respaldo por si se llama
         console.log(`[INFO] Después de autenticar ${this.sessionId} (afterAuthentication)`);
         await this.saveSessionData(sessionData);
     }
 
     async saveSessionData(sessionData) {
         console.log(`[DEBUG] Intentando guardar datos de sesión para ${this.sessionId}`);
+        if (!sessionData) {
+            console.warn(`[WARN] No se recibieron datos de sesión para guardar en ${this.sessionId}`);
+            return;
+        }
         const connection = await mysql.createConnection(dbConfig);
         try {
             const serializedData = JSON.stringify(sessionData);
@@ -141,15 +144,11 @@ const initializeClient = async (sessionId) => {
     });
 
     client.on('authenticated', async (sessionData) => {
-        console.log(`[INFO] Sesión ${sessionId} autenticada correctamente`);
+        console.log(`[INFO] Evento 'authenticated' disparado para ${sessionId}`);
+        console.log(`[DEBUG] Datos de sesión recibidos en 'authenticated': ${JSON.stringify(sessionData)}`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras authenticated. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
-        // Guardamos los datos inmediatamente después de la autenticación
-        if (sessionData) {
-            await authStrategy.saveSessionData(sessionData);
-        } else {
-            console.warn(`[WARN] No se recibieron datos de sesión para ${sessionId} en 'authenticated'`);
-        }
+        await authStrategy.saveSessionData(sessionData);
     });
 
     client.on('ready', () => {
@@ -193,7 +192,9 @@ const initializeClient = async (sessionId) => {
     });
 
     try {
+        console.log(`[INFO] Iniciando inicialización del cliente para ${sessionId}`);
         await client.initialize();
+        console.log(`[INFO] Inicialización completada para ${sessionId}`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras initialize. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
         const state = await client.getState();
@@ -264,7 +265,6 @@ app.post('/api/session', async (req, res) => {
         }
         
         if (clients[sessionId]) {
-            console.log(clients[sessionId])
             return res.status(400).json({ error: 'La sesión ya existe y está activa' });
         }
 
