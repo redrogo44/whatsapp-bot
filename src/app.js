@@ -1,7 +1,7 @@
 require('dotenv').config();
 // app.js
 const express = require('express');
-const { Client, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const mysql = require('mysql2/promise');
 const fs = require('fs');
@@ -27,51 +27,16 @@ const defaultResponses = {
     'gracias': 'De nada, estoy aquí para ayudarte'
 };
 
-// Estrategia de autenticación personalizada para MySQL
-class MySQLAuth {
+// Estrategia de autenticación extendida desde LocalAuth
+class MySQLAuth extends LocalAuth {
     constructor(sessionId) {
+        super({ clientId: sessionId }); // Usamos sessionId como clientId para LocalAuth
         this.sessionId = sessionId;
-        this.client = null;
     }
 
-    async setup(client) {
-        this.client = client;
-        console.log(`[INFO] Configurando estrategia de autenticación para ${this.sessionId}`);
-    }
-
-    async beforeBrowserInitialized() {
-        console.log(`[INFO] Antes de inicializar el navegador para ${this.sessionId}`);
-    }
-
-    async afterBrowserInitialized() {
-        console.log(`[INFO] Después de inicializar el navegador para ${this.sessionId}`);
-    }
-
-    async onAuthenticationNeeded() {
-        console.log(`[INFO] Autenticación necesaria para ${this.sessionId}`);
-        const connection = await mysql.createConnection(dbConfig);
-        try {
-            const [rows] = await connection.execute(
-                'SELECT session_data FROM whatsapp_sessions WHERE session_id = ?',
-                [this.sessionId]
-            );
-            if (rows.length > 0) {
-                const data = JSON.parse(rows[0].session_data);
-                console.log(`[DEBUG] Datos de autenticación cargados desde MySQL para ${this.sessionId}`);
-                return { failed: false, credentials: data };
-            }
-            console.log(`[INFO] No se encontraron datos de autenticación para ${this.sessionId}, generando nuevo QR`);
-            return { failed: false };
-        } catch (error) {
-            console.error(`[ERROR] Error al cargar datos de autenticación desde MySQL: ${error.message}`);
-            return { failed: true };
-        } finally {
-            await connection.end();
-        }
-    }
-
-    async afterAuthentication({ sessionData }) {
-        console.log(`[INFO] Después de autenticar ${this.sessionId} (afterAuthentication)`);
+    async afterAuthReady() {
+        console.log(`[INFO] Después de autenticación lista para ${this.sessionId} (afterAuthReady)`);
+        const sessionData = this.client.authStrategy.session; // Intentar acceder a los datos de sesión
         await this.saveSessionData(sessionData);
     }
 
@@ -108,10 +73,7 @@ class MySQLAuth {
         } finally {
             await connection.end();
         }
-    }
-
-    async destroy() {
-        console.log(`[INFO] Destruyendo estrategia de autenticación para ${this.sessionId}`);
+        await super.logout();
     }
 }
 
@@ -150,14 +112,9 @@ const initializeClient = async (sessionId) => {
         console.log(`[INFO] Evento 'ready' disparado para ${sessionId}`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras ready. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
-        // Respaldo para guardar datos si 'authenticated' falla
-        try {
-            const sessionData = client.info; // Obtener datos de sesión
-            console.log(`[DEBUG] Datos de sesión obtenidos en 'ready': ${JSON.stringify(sessionData)}`);
-            await authStrategy.saveSessionData(sessionData);
-        } catch (error) {
-            console.error(`[ERROR] Error al obtener datos de sesión en 'ready': ${error.message}`);
-        }
+        const sessionData = client.info;
+        console.log(`[DEBUG] Datos de sesión obtenidos en 'ready': ${JSON.stringify(sessionData)}`);
+        await authStrategy.saveSessionData(sessionData);
     });
 
     client.on('auth_failure', (msg) => {
@@ -169,6 +126,10 @@ const initializeClient = async (sessionId) => {
         console.log(`[INFO] Cliente ${sessionId} desconectado: ${reason}`);
         delete clients[sessionId];
         console.log(`[DEBUG] Sesión ${sessionId} eliminada de clients. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
+    });
+
+    client.on('change_state', (state) => {
+        console.log(`[INFO] Cambio de estado para ${sessionId}: ${state}`);
     });
 
     try {
