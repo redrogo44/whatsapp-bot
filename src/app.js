@@ -214,7 +214,6 @@ const initializeClient = async (sessionId) => {
             console.log(`[INFO] Ignorando mensaje de grupo ${msg.from}`);
             return;
         }
-
         try {
             const contact = await client.getContactById(msg.from);
             const isSavedContact = contact.name || contact.pushname;
