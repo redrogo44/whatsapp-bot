@@ -66,6 +66,7 @@ cubobit-desarrollo.json
 
 dist/
 sessions/
+.wwebjs_auth/
 ticket.pdf
 CODE_QR.png
 template_image.jpeg
