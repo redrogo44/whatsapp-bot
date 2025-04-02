@@ -1,3 +1,4 @@
+require('dotenv').config();
 // app.js
 const express = require('express');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
@@ -7,7 +8,6 @@ const fs = require('fs').promises;
 const path = require('path');
 const axios = require('axios');
 
-require('dotenv').config();
 const app = express();
 app.use(express.json());
 
@@ -91,13 +91,18 @@ class MySQLAuth extends LocalAuth {
 
     async getSession() {
         const sessionFromMySQL = await this.loadSessionFromMySQL();
-        if (sessionFromMySQL && sessionFromMySQL.WABrowserId && sessionFromMySQL.WASecretBundle && sessionFromMySQL.WAToken1 && sessionFromMySQL.WAToken2) {
+        if (sessionFromMySQL) {
             this.sessionData = sessionFromMySQL;
-            console.log(`[INFO] Sesión cargada desde MySQL para ${this.sessionId}`);
-            return sessionFromMySQL; // Devolvemos los datos completos para que LocalAuth los use
+            console.log(`[DEBUG] Verificando claves en datos cargados para ${this.sessionId}: WABrowserId=${!!sessionFromMySQL.WABrowserId}, WASecretBundle=${!!sessionFromMySQL.WASecretBundle}, WAToken1=${!!sessionFromMySQL.WAToken1}, WAToken2=${!!sessionFromMySQL.WAToken2}`);
+            if (sessionFromMySQL.WABrowserId && sessionFromMySQL.WASecretBundle && sessionFromMySQL.WAToken1 && sessionFromMySQL.WAToken2) {
+                console.log(`[INFO] Sesión cargada desde MySQL para ${this.sessionId} con todas las claves necesarias`);
+                return sessionFromMySQL;
+            } else {
+                console.warn(`[WARN] Datos incompletos en MySQL para ${this.sessionId}, generando QR`);
+            }
         }
-        console.log(`[INFO] No se encontraron datos de autenticación completos en MySQL para ${this.sessionId}, generando QR`);
-        return null; // Generamos QR si faltan claves esenciales
+        console.log(`[INFO] No se encontraron datos válidos en MySQL para ${this.sessionId}, generando QR`);
+        return null;
     }
 
     async logout() {
@@ -129,25 +134,24 @@ const captureSessionDataFromFiles = async (sessionId) => {
         const files = await fs.readdir(sessionDir, { withFileTypes: true });
         let sessionData = {};
 
-        // Buscamos archivos que contengan datos de autenticación
+        console.log(`[DEBUG] Inspeccionando directorio ${sessionDir} para ${sessionId}. Archivos encontrados: ${files.map(f => f.name).join(', ')}`);
         for (const file of files) {
             if (file.isFile() && file.name.endsWith('.json')) {
                 const filePath = path.join(sessionDir, file.name);
                 const content = await fs.readFile(filePath, 'utf8');
+                console.log(`[DEBUG] Contenido de ${filePath}: ${content.substring(0, 200)}...`);
                 const data = JSON.parse(content);
-                if (data.WABrowserId || data.WASecretBundle || data.WAToken1 || data.WAToken2) {
-                    sessionData = {
-                        WABrowserId: data.WABrowserId || sessionData.WABrowserId,
-                        WASecretBundle: data.WASecretBundle || sessionData.WASecretBundle,
-                        WAToken1: data.WAToken1 || sessionData.WAToken1,
-                        WAToken2: data.WAToken2 || sessionData.WAToken2,
-                    };
-                }
+                sessionData = {
+                    WABrowserId: data.WABrowserId || sessionData.WABrowserId,
+                    WASecretBundle: data.WASecretBundle || sessionData.WASecretBundle,
+                    WAToken1: data.WAToken1 || sessionData.WAToken1,
+                    WAToken2: data.WAToken2 || sessionData.WAToken2,
+                };
             }
         }
 
-        if (Object.keys(sessionData).length === 0) {
-            console.warn(`[WARN] No se encontraron datos de autenticación en ${sessionDir}`);
+        if (Object.keys(sessionData).length === 0 || !sessionData.WABrowserId) {
+            console.warn(`[WARN] No se encontraron datos de autenticación completos en ${sessionDir}`);
         } else {
             console.log(`[DEBUG] Datos de sesión capturados desde archivos para ${sessionId}: ${JSON.stringify(sessionData)}`);
         }
@@ -189,11 +193,9 @@ const initializeClient = async (sessionId) => {
 
     client.on('ready', async () => {
         console.log(`[INFO] Evento 'ready' disparado para ${sessionId}`);
-        // Capturamos las claves de autenticación desde el sistema de archivos
         const authData = await captureSessionDataFromFiles(sessionId);
-        // Completamos los datos de sesión con client.info
         const sessionData = {
-            ...authData, // Incluimos las claves de autenticación
+            ...authData,
             wid: client.info.wid,
             pushname: client.info.pushname,
             platform: client.info.platform,
@@ -202,32 +204,29 @@ const initializeClient = async (sessionId) => {
         console.log(`[DEBUG] Datos de sesión obtenidos en 'ready': ${JSON.stringify(sessionData)}`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras ready. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
-        await authStrategy.saveSessionData(sessionData); // Guardamos datos completos
+        await authStrategy.saveSessionData(sessionData);
     });
 
     client.on('message', async (msg) => {
         console.log(`[INFO] Mensaje recibido en sesión ${sessionId} desde ${msg.from}: ${msg.body}`);
 
-        // Validación 1: No responder en grupos
         if (msg.from.endsWith('@g.us')) {
             console.log(`[INFO] Ignorando mensaje de grupo ${msg.from}`);
             return;
         }
 
-        // Validación 2: Opcional - Verificar si el contacto está guardado
         try {
             const contact = await client.getContactById(msg.from);
-            const isSavedContact = contact.name || contact.pushname; // Si tiene nombre, está guardado
+            const isSavedContact = contact.name || contact.pushname;
             if (!isSavedContact) {
                 console.log(`[INFO] Ignorando mensaje de contacto no guardado ${msg.from}`);
-                return; // Comenta esta línea si quieres responder a contactos no guardados
+                return;
             }
         } catch (error) {
             console.error(`[ERROR] Error al verificar contacto ${msg.from}: ${error.message}`);
             return;
         }
 
-        // Respuesta automática basada en defaultResponses
         const messageBody = msg.body.toLowerCase().trim();
         const response = defaultResponses[messageBody];
         if (response) {
