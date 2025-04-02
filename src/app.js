@@ -1,4 +1,3 @@
-require('dotenv').config();
 // app.js
 const express = require('express');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
@@ -7,6 +6,7 @@ const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+require('dotenv').config();
 
 const app = express();
 app.use(express.json());
