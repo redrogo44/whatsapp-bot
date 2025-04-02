@@ -1,3 +1,4 @@
+require('dotenv').config();
 // app.js
 const express = require('express');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
@@ -6,7 +7,6 @@ const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-require('dotenv').config();
 
 const app = express();
 app.use(express.json());
@@ -30,14 +30,37 @@ const defaultResponses = {
 // Estrategia de autenticación extendida desde LocalAuth
 class MySQLAuth extends LocalAuth {
     constructor(sessionId) {
-        super({ clientId: sessionId }); // Usamos sessionId como clientId para LocalAuth
+        super({ clientId: sessionId });
         this.sessionId = sessionId;
     }
 
     async afterAuthReady() {
         console.log(`[INFO] Después de autenticación lista para ${this.sessionId} (afterAuthReady)`);
-        const sessionData = this.client.authStrategy.session; // Intentar acceder a los datos de sesión
+        const sessionData = this.client.authStrategy.getSessionData(); // Método interno para obtener datos de sesión
         await this.saveSessionData(sessionData);
+    }
+
+    async loadSession() {
+        console.log(`[INFO] Intentando cargar sesión para ${this.sessionId} desde MySQL`);
+        const connection = await mysql.createConnection(dbConfig);
+        try {
+            const [rows] = await connection.execute(
+                'SELECT session_data FROM whatsapp_sessions WHERE session_id = ?',
+                [this.sessionId]
+            );
+            if (rows.length > 0) {
+                const sessionData = JSON.parse(rows[0].session_data);
+                console.log(`[DEBUG] Datos de sesión cargados desde MySQL para ${this.sessionId}: ${JSON.stringify(sessionData).substring(0, 100)}...`);
+                return sessionData;
+            }
+            console.log(`[INFO] No se encontraron datos de sesión para ${this.sessionId} en MySQL`);
+            return null;
+        } catch (error) {
+            console.error(`[ERROR] Error al cargar datos de sesión desde MySQL: ${error.message}`);
+            return null;
+        } finally {
+            await connection.end();
+        }
     }
 
     async saveSessionData(sessionData) {
@@ -75,6 +98,21 @@ class MySQLAuth extends LocalAuth {
         }
         await super.logout();
     }
+
+    // Sobrescribimos getSession para usar MySQL
+    async getSession() {
+        const session = await this.loadSession();
+        if (session) {
+            this.session = session; // Establecemos la sesión en la instancia
+            return session;
+        }
+        return super.getSession();
+    }
+
+    // Método auxiliar para obtener datos de sesión
+    getSessionData() {
+        return this.session || {};
+    }
 }
 
 // Función para inicializar un cliente WhatsApp
@@ -100,8 +138,9 @@ const initializeClient = async (sessionId) => {
         qrcode.generate(qr, { small: true });
     });
 
-    client.on('authenticated', async (sessionData) => {
+    client.on('authenticated', async () => {
         console.log(`[INFO] Evento 'authenticated' disparado para ${sessionId}`);
+        const sessionData = authStrategy.getSessionData();
         console.log(`[DEBUG] Datos de sesión recibidos en 'authenticated': ${JSON.stringify(sessionData)}`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras authenticated. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
@@ -112,7 +151,7 @@ const initializeClient = async (sessionId) => {
         console.log(`[INFO] Evento 'ready' disparado para ${sessionId}`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras ready. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
-        const sessionData = client.info;
+        const sessionData = authStrategy.getSessionData();
         console.log(`[DEBUG] Datos de sesión obtenidos en 'ready': ${JSON.stringify(sessionData)}`);
         await authStrategy.saveSessionData(sessionData);
     });
