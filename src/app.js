@@ -13,11 +13,11 @@ app.use(express.json());
 
 // Configuración de la conexión a MySQL
 const dbConfig = {
-    host: process.env.DB_HOST,
+    host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 3306,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_DATABASE
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_DATABASE || 'whatsapp_db'
 };
 
 const clients = {};
@@ -32,34 +32,15 @@ class MySQLAuth extends LocalAuth {
     constructor(sessionId) {
         super({ clientId: sessionId });
         this.sessionId = sessionId;
+        this.sessionData = null; // Almacenamos los datos de sesión manualmente
     }
 
     async afterAuthReady() {
         console.log(`[INFO] Después de autenticación lista para ${this.sessionId} (afterAuthReady)`);
-        const sessionData = this.client.authStrategy.getSessionData(); // Método interno para obtener datos de sesión
-        await this.saveSessionData(sessionData);
-    }
-
-    async loadSession() {
-        console.log(`[INFO] Intentando cargar sesión para ${this.sessionId} desde MySQL`);
-        const connection = await mysql.createConnection(dbConfig);
-        try {
-            const [rows] = await connection.execute(
-                'SELECT session_data FROM whatsapp_sessions WHERE session_id = ?',
-                [this.sessionId]
-            );
-            if (rows.length > 0) {
-                const sessionData = JSON.parse(rows[0].session_data);
-                console.log(`[DEBUG] Datos de sesión cargados desde MySQL para ${this.sessionId}: ${JSON.stringify(sessionData).substring(0, 100)}...`);
-                return sessionData;
-            }
-            console.log(`[INFO] No se encontraron datos de sesión para ${this.sessionId} en MySQL`);
-            return null;
-        } catch (error) {
-            console.error(`[ERROR] Error al cargar datos de sesión desde MySQL: ${error.message}`);
-            return null;
-        } finally {
-            await connection.end();
+        if (this.sessionData) {
+            await this.saveSessionData(this.sessionData);
+        } else {
+            console.warn(`[WARN] No hay datos de sesión disponibles en afterAuthReady para ${this.sessionId}`);
         }
     }
 
@@ -85,6 +66,45 @@ class MySQLAuth extends LocalAuth {
         }
     }
 
+    async loadSessionFromMySQL() {
+        console.log(`[INFO] Intentando cargar sesión para ${this.sessionId} desde MySQL`);
+        const connection = await mysql.createConnection(dbConfig);
+        try {
+            const [rows] = await connection.execute(
+                'SELECT session_data FROM whatsapp_sessions WHERE session_id = ?',
+                [this.sessionId]
+            );
+            if (rows.length > 0) {
+                const sessionData = JSON.parse(rows[0].session_data);
+                console.log(`[DEBUG] Datos de sesión cargados desde MySQL para ${this.sessionId}: ${JSON.stringify(sessionData).substring(0, 100)}...`);
+                return sessionData;
+            }
+            console.log(`[INFO] No se encontraron datos de sesión para ${this.sessionId} en MySQL`);
+            return null;
+        } catch (error) {
+            console.error(`[ERROR] Error al cargar datos de sesión desde MySQL: ${error.message}`);
+            return null;
+        } finally {
+            await connection.end();
+        }
+    }
+
+    async getSession() {
+        const sessionFromMySQL = await this.loadSessionFromMySQL();
+        if (sessionFromMySQL) {
+            this.session = sessionFromMySQL;
+            this.sessionData = sessionFromMySQL; // Guardamos para uso posterior
+            console.log(`[INFO] Sesión cargada desde MySQL para ${this.sessionId}`);
+            return sessionFromMySQL;
+        }
+        const localSession = await super.getSession();
+        if (localSession) {
+            this.sessionData = localSession; // Guardamos los datos localmente
+            console.log(`[INFO] Sesión obtenida de LocalAuth para ${this.sessionId}: ${JSON.stringify(localSession)}`);
+        }
+        return localSession;
+    }
+
     async logout() {
         console.log(`[INFO] Cerrando sesión para ${this.sessionId}`);
         const connection = await mysql.createConnection(dbConfig);
@@ -97,21 +117,6 @@ class MySQLAuth extends LocalAuth {
             await connection.end();
         }
         await super.logout();
-    }
-
-    // Sobrescribimos getSession para usar MySQL
-    async getSession() {
-        const session = await this.loadSession();
-        if (session) {
-            this.session = session; // Establecemos la sesión en la instancia
-            return session;
-        }
-        return super.getSession();
-    }
-
-    // Método auxiliar para obtener datos de sesión
-    getSessionData() {
-        return this.session || {};
     }
 }
 
@@ -140,7 +145,8 @@ const initializeClient = async (sessionId) => {
 
     client.on('authenticated', async () => {
         console.log(`[INFO] Evento 'authenticated' disparado para ${sessionId}`);
-        const sessionData = authStrategy.getSessionData();
+        const sessionData = client.authStrategy.session || await client.authStrategy.getSession();
+        authStrategy.sessionData = sessionData; // Almacenamos manualmente
         console.log(`[DEBUG] Datos de sesión recibidos en 'authenticated': ${JSON.stringify(sessionData)}`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras authenticated. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
@@ -151,7 +157,7 @@ const initializeClient = async (sessionId) => {
         console.log(`[INFO] Evento 'ready' disparado para ${sessionId}`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras ready. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
-        const sessionData = authStrategy.getSessionData();
+        const sessionData = authStrategy.sessionData || await client.authStrategy.getSession();
         console.log(`[DEBUG] Datos de sesión obtenidos en 'ready': ${JSON.stringify(sessionData)}`);
         await authStrategy.saveSessionData(sessionData);
     });
