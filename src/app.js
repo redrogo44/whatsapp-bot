@@ -205,6 +205,39 @@ const initializeClient = async (sessionId) => {
         await authStrategy.saveSessionData(sessionData); // Guardamos datos completos
     });
 
+    client.on('message', async (msg) => {
+        console.log(`[INFO] Mensaje recibido en sesión ${sessionId} desde ${msg.from}: ${msg.body}`);
+
+        // Validación 1: No responder en grupos
+        if (msg.from.endsWith('@g.us')) {
+            console.log(`[INFO] Ignorando mensaje de grupo ${msg.from}`);
+            return;
+        }
+
+        // Validación 2: Opcional - Verificar si el contacto está guardado
+        try {
+            const contact = await client.getContactById(msg.from);
+            const isSavedContact = contact.name || contact.pushname; // Si tiene nombre, está guardado
+            if (!isSavedContact) {
+                console.log(`[INFO] Ignorando mensaje de contacto no guardado ${msg.from}`);
+                return; // Comenta esta línea si quieres responder a contactos no guardados
+            }
+        } catch (error) {
+            console.error(`[ERROR] Error al verificar contacto ${msg.from}: ${error.message}`);
+            return;
+        }
+
+        // Respuesta automática basada en defaultResponses
+        const messageBody = msg.body.toLowerCase().trim();
+        const response = defaultResponses[messageBody];
+        if (response) {
+            await msg.reply(response);
+            console.log(`[INFO] Respuesta enviada a ${msg.from}: ${response}`);
+        } else {
+            console.log(`[INFO] No hay respuesta automática configurada para "${messageBody}"`);
+        }
+    });
+
     client.on('auth_failure', (msg) => {
         console.error(`[ERROR] Fallo de autenticación para ${sessionId}: ${msg}`);
         delete clients[sessionId];
