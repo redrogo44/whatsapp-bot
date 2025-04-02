@@ -61,7 +61,7 @@ class MySQLAuth {
                 return { failed: false, credentials: data };
             }
             console.log(`[INFO] No se encontraron datos de autenticación para ${this.sessionId}, generando nuevo QR`);
-            return { failed: false }; // Generar QR si no hay datos
+            return { failed: false };
         } catch (error) {
             console.error(`[ERROR] Error al cargar datos de autenticación desde MySQL: ${error.message}`);
             return { failed: true };
@@ -124,13 +124,7 @@ const initializeClient = async (sessionId) => {
         authStrategy,
         puppeteer: {
             headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--single-process'
-            ]
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         },
         webVersionCache: {
             type: 'remote',
@@ -139,6 +133,7 @@ const initializeClient = async (sessionId) => {
     });
 
     client.on('qr', (qr) => {
+        console.log(`[INFO] Evento 'qr' disparado para ${sessionId}`);
         console.log(`[INFO] Generando QR para sesión ${sessionId}. Escanea este QR:`);
         qrcode.generate(qr, { small: true });
     });
@@ -151,19 +146,13 @@ const initializeClient = async (sessionId) => {
         await authStrategy.saveSessionData(sessionData);
     });
 
-    // client.on('ready', () => {
-    //     console.log(`[INFO] Cliente ${sessionId} está listo`);
-    //     clients[sessionId] = client;
-    //     console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras ready. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
-    // });
-
     client.on('ready', async () => {
-        console.log(`[INFO] Cliente ${sessionId} está listo`);
+        console.log(`[INFO] Evento 'ready' disparado para ${sessionId}`);
         clients[sessionId] = client;
         console.log(`[DEBUG] Sesión ${sessionId} guardada en clients tras ready. Sesiones activas: ${Object.keys(clients).join(', ') || 'Ninguna'}`);
-        // Intentar obtener los datos de sesión manualmente
+        // Respaldo para guardar datos si 'authenticated' falla
         try {
-            const sessionData = await client.info; // O client.getWASession() si está disponible
+            const sessionData = client.info; // Obtener datos de sesión
             console.log(`[DEBUG] Datos de sesión obtenidos en 'ready': ${JSON.stringify(sessionData)}`);
             await authStrategy.saveSessionData(sessionData);
         } catch (error) {
@@ -174,29 +163,6 @@ const initializeClient = async (sessionId) => {
     client.on('auth_failure', (msg) => {
         console.error(`[ERROR] Fallo de autenticación para ${sessionId}: ${msg}`);
         delete clients[sessionId];
-    });
-
-    client.on('message', async (msg) => {
-        if (msg.from.endsWith('@c.us') && !msg.fromMe) {
-            const message = msg.body.toLowerCase();
-            try {
-                const contact = await client.getContactById(msg.from);
-                const isContact = contact.isMyContact;
-
-                if (isContact) {
-                    console.log(`[INFO] Mensaje de contacto registrado: ${msg.from} - ${message}`);
-                    const response = defaultResponses[message] || 'Hola, estás en mis contactos. ¿Cómo puedo ayudarte?';
-                    await msg.reply(response);
-                } else {
-                    console.log(`[INFO] Mensaje de número no registrado: ${msg.from} - ${message}`);
-                    const response = defaultResponses[message] || 'Hola, no estás en mis contactos. ¿En qué te puedo ayudar?';
-                    await msg.reply(response);
-                }
-            } catch (error) {
-                console.error(`[ERROR] Error al obtener contacto ${msg.from}:`, error);
-                await msg.reply('Ocurrió un error al procesar tu mensaje.');
-            }
-        }
     });
 
     client.on('disconnected', (reason) => {
@@ -219,7 +185,8 @@ const initializeClient = async (sessionId) => {
         }
         return client;
     } catch (error) {
-        console.error(`[ERROR] Error inicializando cliente ${sessionId}:`, error);
+        console.error(`[ERROR] Error inicializando cliente ${sessionId}: ${error.message}`);
+        console.error(`[ERROR] Detalles del error: ${error.stack}`);
         delete clients[sessionId];
         throw error;
     }
